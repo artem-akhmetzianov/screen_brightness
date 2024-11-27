@@ -187,17 +187,24 @@ public class SwiftScreenBrightnessIosPlugin: NSObject, FlutterPlugin, FlutterApp
         }
         
         onApplicationPause()
-        NotificationCenter.default.addObserver(self, selector: #selector(onSystemScreenBrightnessChanged), name: UIScreen.brightnessDidChangeNotification, object: nil)
+        taskQueue.addOperation { [weak self] in
+            let operation = BlockOperation(block: {
+                guard let self else { return }
+                NotificationCenter.default.addObserver(self, selector: #selector(self.onSystemScreenBrightnessChanged), name: UIScreen.brightnessDidChangeNotification, object: nil)
+            })
+            OperationQueue.main.waitUntilAllOperationsAreFinished()
+            OperationQueue.main.addOperation(operation)
+        }
     }
     
     public func applicationDidBecomeActive(_ application: UIApplication) {
+        systemScreenBrightness = UIScreen.main.brightness
+        NotificationCenter.default.removeObserver(self, name: UIScreen.brightnessDidChangeNotification, object: nil)
+        
         guard isAutoReset else {
             return
         }
         
-        NotificationCenter.default.removeObserver(self, name: UIScreen.brightnessDidChangeNotification, object: nil)
-        systemScreenBrightness = UIScreen.main.brightness
-        handleSystemScreenBrightnessChanged(systemScreenBrightness!)
         if (applicationScreenBrightness == nil) {
             handleApplicationScreenBrightnessChanged(systemScreenBrightness!)
         }
@@ -242,16 +249,21 @@ public class SwiftScreenBrightnessIosPlugin: NSObject, FlutterPlugin, FlutterApp
                 }
 
                 Thread.sleep(forTimeInterval: duration * changes)
-                OperationQueue.main.addOperation({
+                let operationQueueOperation = BlockOperation(block: {
+                    guard _brightness != UIScreen.main.brightness else {
+                        return
+                    }
+                    
                     UIScreen.main.brightness = _brightness
                 })
+                OperationQueue.main.addOperation(operationQueueOperation)
             })
             return blockOperation
         }), waitUntilFinished: false)
     }
     
     @objc private func onSystemScreenBrightnessChanged(notification: Notification) {
-        guard let screenObject = notification.object, let brightness = (screenObject as AnyObject).brightness else {
+        guard let screenObject = notification.object, let brightness = (screenObject as AnyObject).brightness, systemScreenBrightness != brightness else {
             return
         }
         
